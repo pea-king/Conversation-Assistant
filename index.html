@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>阿里云百炼多轮对话助手</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        userBubble: '#165DFF',
+                        assistantBubble: '#F5F7FA',
+                        darkAssistantBubble: '#2D3748',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .scrollbar-thin {
+                scrollbar-width: thin;
+            }
+            .scrollbar-thin::-webkit-scrollbar {
+                width: 6px;
+            }
+            .scrollbar-thin::-webkit-scrollbar-track {
+                background: transparent;
+            }
+            .scrollbar-thin::-webkit-scrollbar-thumb {
+                background-color: rgba(156, 163, 175, 0.5);
+                border-radius: 3px;
+            }
+            .typing-indicator span {
+                animation: typing 1.4s infinite ease-in-out;
+                display: inline-block;
+            }
+            .typing-indicator span:nth-child(2) {
+                animation-delay: 0.2s;
+            }
+            .typing-indicator span:nth-child(3) {
+                animation-delay: 0.4s;
+            }
+            @keyframes typing {
+                0%, 60%, 100% {
+                    transform: translateY(0);
+                }
+                30% {
+                    transform: translateY(-5px);
+                }
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 transition-colors duration-300 min-h-screen">
+    <div class="flex h-screen overflow-hidden">
+        <!-- 左侧边栏 - 多会话列表 -->
+        <div id="sidebar" class="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300">
+            <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                <button id="newChatBtn" class="w-full bg-primary hover:bg-primary/90 text-white rounded-lg py-2 px-4 flex items-center justify-center gap-2 transition-colors">
+                    <i class="fa fa-plus"></i>
+                    <span>新建对话</span>
+                </button>
+            </div>
+
+            <div id="chatList" class="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
+                <!-- 会话列表将在这里动态生成 -->
+            </div>
+
+            <div class="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
+                <button id="exportBtn" class="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-2 px-4 flex items-center justify-center gap-2 transition-colors">
+                    <i class="fa fa-download"></i>
+                    <span>导出聊天记录</span>
+                </button>
+
+                <button id="themeToggle" class="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-2 px-4 flex items-center justify-center gap-2 transition-colors">
+                    <i class="fa fa-moon-o dark:hidden"></i>
+                    <i class="fa fa-sun-o hidden dark:inline"></i>
+                    <span class="dark:hidden">深色模式</span>
+                    <span class="hidden dark:inline">浅色模式</span>
+                </button>
+
+                <button id="sidebarToggle" class="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-2 px-4 flex items-center justify-center gap-2 transition-colors md:hidden">
+                    <i class="fa fa-chevron-left"></i>
+                    <span>隐藏侧边栏</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 主聊天区域 -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- 顶部导航栏 -->
+            <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <button id="mobileSidebarToggle" class="md:hidden text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                        <i class="fa fa-bars text-xl"></i>
+                    </button>
+                    <h1 class="text-xl font-semibold text-gray-800 dark:text-white">阿里云百炼对话助手</h1>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <div id="apiKeyStatus" class="text-sm text-gray-500 dark:text-gray-400">
+                        <i class="fa fa-key mr-1"></i>
+                        <span id="apiKeyStatusText">未设置API Key</span>
+                    </div>
+                    <button id="apiKeyBtn" class="text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-1 px-3 transition-colors">
+                        设置
+                    </button>
+                </div>
+            </header>
+
+            <!-- API Key 设置模态框 -->
+            <div id="apiKeyModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
+                <div class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 shadow-xl">
+                    <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4">设置阿里云百炼API Key</h2>
+                    <p class="text-gray-600 dark:text-gray-300 mb-4 text-sm">
+                        请输入您的阿里云百炼API Key。密钥仅保存在您的浏览器本地，不会上传到任何服务器。
+                    </p>
+                    <input
+                        type="password"
+                        id="apiKeyInput"
+                        placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        class="w-full border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-4 mb-4 bg-white dark:bg-gray-700 text-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary"
+                    >
+                    <div class="flex justify-end gap-2">
+                        <button id="cancelApiKeyBtn" class="bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-2 px-4 transition-colors">
+                            取消
+                        </button>
+                        <button id="saveApiKeyBtn" class="bg-primary hover:bg-primary/90 text-white rounded-lg py-2 px-4 transition-colors">
+                            保存
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 聊天消息区域 -->
+            <div id="chatContainer" class="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
+                <!-- 欢迎消息 -->
+                <div id="welcomeMessage" class="max-w-3xl mx-auto text-center py-12">
+                    <div class="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fa fa-comments text-primary text-2xl"></i>
+                    </div>
+                    <h2 class="text-2xl font-semibold text-gray-800 dark:text-white mb-2">欢迎使用阿里云百炼对话助手</h2>
+                    <p class="text-gray-600 dark:text-gray-300 mb-6">
+                        请先点击右上角"设置"按钮输入您的API Key，然后开始对话。
+                    </p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto">
+                        <button class="example-btn bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-3 px-4 text-left transition-colors">
+                            <i class="fa fa-lightbulb-o mr-2 text-primary"></i>
+                            帮我写一个Python爬虫
+                        </button>
+                        <button class="example-btn bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-3 px-4 text-left transition-colors">
+                            <i class="fa fa-code mr-2 text-primary"></i>
+                            解释一下什么是RESTful API
+                        </button>
+                        <button class="example-btn bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-3 px-4 text-left transition-colors">
+                            <i class="fa fa-book mr-2 text-primary"></i>
+                            推荐几本学习人工智能的书
+                        </button>
+                        <button class="example-btn bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg py-3 px-4 text-left transition-colors">
+                            <i class="fa fa-coffee mr-2 text-primary"></i>
+                            写一份周末出游计划
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 消息将在这里动态生成 -->
+            </div>
+
+            <!-- 输入区域 -->
+            <div class="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4">
+                <div class="max-w-3xl mx-auto">
+                    <div class="relative bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600 focus-within:ring-2 focus-within:ring-primary focus-within:border-transparent">
+                        <textarea
+                            id="userInput"
+                            placeholder="输入您的问题..."
+                            rows="1"
+                            class="w-full bg-transparent py-3 px-4 pr-24 text-gray-800 dark:text-white focus:outline-none resize-none max-h-48"
+                        ></textarea>
+                        <div class="absolute right-2 bottom-2 flex gap-2">
+                            <button id="stopBtn" class="hidden bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-200 rounded-lg py-1 px-3 transition-colors">
+                                <i class="fa fa-stop mr-1"></i>
+                                停止
+                            </button>
+                            <button id="sendBtn" class="bg-primary hover:bg-primary/90 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg py-1 px-3 transition-colors">
+                                <i class="fa fa-paper-plane mr-1"></i>
+                                发送
+                            </button>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                        按 Enter 发送，Shift+Enter 换行
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 配置
+        const CONFIG = {
+            model: 'qwen3.6-plus',
+            baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+            maxHistoryLength: 50,
+            temperature: 0.7,
+            // 新增：流式输出配置
+            streamOptions: {
+                // 确保每个token都立即发送
+                stream_options: {
+                    include_usage: true
+                }
+            }
+        };
+
+        // 全局状态
+        let state = {
+            apiKey: localStorage.getItem('aliyunApiKey') || '',
+            currentChatId: null,
+            chats: JSON.parse(localStorage.getItem('aliyunChats') || '[]'),
+            isGenerating: false,
+            abortController: null,
+        };
+
+        // DOM 元素
+        const elements = {
+            chatList: document.getElementById('chatList'),
+            chatContainer: document.getElementById('chatContainer'),
+            userInput: document.getElementById('userInput'),
+            sendBtn: document.getElementById('sendBtn'),
+            stopBtn: document.getElementById('stopBtn'),
+            newChatBtn: document.getElementById('newChatBtn'),
+            exportBtn: document.getElementById('exportBtn'),
+            themeToggle: document.getElementById('themeToggle'),
+            apiKeyBtn: document.getElementById('apiKeyBtn'),
+            apiKeyModal: document.getElementById('apiKeyModal'),
+            apiKeyInput: document.getElementById('apiKeyInput'),
+            saveApiKeyBtn: document.getElementById('saveApiKeyBtn'),
+            cancelApiKeyBtn: document.getElementById('cancelApiKeyBtn'),
+            apiKeyStatus: document.getElementById('apiKeyStatus'),
+            apiKeyStatusText: document.getElementById('apiKeyStatusText'),
+            welcomeMessage: document.getElementById('welcomeMessage'),
+            sidebar: document.getElementById('sidebar'),
+            sidebarToggle: document.getElementById('sidebarToggle'),
+            mobileSidebarToggle: document.getElementById('mobileSidebarToggle'),
+            exampleBtns: document.querySelectorAll('.example-btn'),
+        };
+
+        // 初始化
+        function init() {
+            // 初始化主题
+            if (localStorage.getItem('darkMode') === 'true' ||
+                (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark');
+            }
+
+            // 更新API Key状态
+            updateApiKeyStatus();
+
+            // 渲染聊天列表
+            renderChatList();
+
+            // 如果有聊天记录，加载第一个
+            if (state.chats.length > 0) {
+                loadChat(state.chats[0].id);
+            }
+
+            // 绑定事件
+            bindEvents();
+
+            // 自动调整输入框高度
+            autoResizeTextarea();
+        }
+
+        // 绑定事件
+        function bindEvents() {
+            elements.sendBtn.addEventListener('click', sendMessage);
+            elements.stopBtn.addEventListener('click', stopGeneration);
+            elements.newChatBtn.addEventListener('click', createNewChat);
+            elements.exportBtn.addEventListener('click', exportChatHistory);
+            elements.themeToggle.addEventListener('click', toggleTheme);
+            elements.apiKeyBtn.addEventListener('click', () => {
+                elements.apiKeyModal.classList.remove('hidden');
+                elements.apiKeyInput.value = state.apiKey;
+                elements.apiKeyInput.focus();
+            });
+            elements.saveApiKeyBtn.addEventListener('click', saveApiKey);
+            elements.cancelApiKeyBtn.addEventListener('click', () => {
+                elements.apiKeyModal.classList.add('hidden');
+            });
+            elements.sidebarToggle.addEventListener('click', toggleSidebar);
+            elements.mobileSidebarToggle.addEventListener('click', toggleSidebar);
+
+            elements.userInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            // 点击模态框外部关闭
+            elements.apiKeyModal.addEventListener('click', (e) => {
+                if (e.target === elements.apiKeyModal) {
+                    elements.apiKeyModal.classList.add('hidden');
+                }
+            });
+
+            // 示例按钮点击
+            elements.exampleBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    elements.userInput.value = btn.textContent.trim();
+                    elements.userInput.focus();
+                });
+            });
+        }
+
+        // 更新API Key状态
+        function updateApiKeyStatus() {
+            if (!elements.apiKeyStatus || !elements.apiKeyStatusText) return;
+
+            if (state.apiKey) {
+                elements.apiKeyStatusText.textContent = '已设置API Key';
+                elements.apiKeyStatus.classList.remove('text-red-500');
+                elements.apiKeyStatus.classList.add('text-green-500');
+            } else {
+                elements.apiKeyStatusText.textContent = '未设置API Key';
+                elements.apiKeyStatus.classList.remove('text-green-500');
+                elements.apiKeyStatus.classList.add('text-red-500');
+            }
+        }
+
+        // 保存API Key
+        function saveApiKey() {
+            const apiKey = elements.apiKeyInput.value.trim();
+            if (!apiKey) {
+                alert('请输入有效的API Key');
+                return;
+            }
+
+            state.apiKey = apiKey;
+            localStorage.setItem('aliyunApiKey', apiKey);
+            updateApiKeyStatus();
+            elements.apiKeyModal.classList.add('hidden');
+        }
+
+        // 切换主题
+        function toggleTheme() {
+            document.documentElement.classList.toggle('dark');
+            localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
+        }
+
+        // 切换侧边栏
+        function toggleSidebar() {
+            elements.sidebar.classList.toggle('-translate-x-full');
+            elements.sidebar.classList.toggle('w-0');
+            elements.sidebar.classList.toggle('w-64');
+        }
+
+        // 自动调整输入框高度
+        function autoResizeTextarea() {
+            elements.userInput.addEventListener('input', () => {
+                elements.userInput.style.height = 'auto';
+                elements.userInput.style.height = Math.min(elements.userInput.scrollHeight, 192) + 'px';
+            });
+        }
+
+        // 创建新聊天
+        function createNewChat() {
+            const chatId = Date.now().toString();
+            const newChat = {
+                id: chatId,
+                title: '新对话',
+                messages: [],
+                createdAt: new Date().toISOString(),
+            };
+
+            state.chats.unshift(newChat);
+            saveChatsToLocalStorage();
+            renderChatList();
+            loadChat(chatId);
+            elements.userInput.focus();
+        }
+
+        // 渲染聊天列表
+        function renderChatList() {
+            if (!elements.chatList) return;
+            elements.chatList.innerHTML = '';
+
+            state.chats.forEach(chat => {
+                const chatItem = document.createElement('div');
+                chatItem.className = `flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${
+                    chat.id === state.currentChatId
+                        ? 'bg-primary/10 text-primary'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'
+                }`;
+                chatItem.innerHTML = `
+                    <div class="flex items-center gap-2 truncate">
+                        <i class="fa fa-comment-o"></i>
+                        <span class="truncate">${chat.title}</span>
+                    </div>
+                    <button class="delete-chat-btn opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity" data-id="${chat.id}">
+                        <i class="fa fa-trash-o"></i>
+                    </button>
+                `;
+
+                chatItem.addEventListener('click', (e) => {
+                    if (!e.target.closest('.delete-chat-btn')) {
+                        loadChat(chat.id);
+                    }
+                });
+
+                const deleteBtn = chatItem.querySelector('.delete-chat-btn');
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    if (confirm('确定要删除这个对话吗？')) {
+                        deleteChat(chat.id);
+                    }
+                });
+
+                // 显示删除按钮
+                chatItem.addEventListener('mouseenter', () => {
+                    deleteBtn.classList.remove('opacity-0');
+                });
+                chatItem.addEventListener('mouseleave', () => {
+                    deleteBtn.classList.add('opacity-0');
+                });
+
+                elements.chatList.appendChild(chatItem);
+            });
+        }
+
+        // 加载聊天
+        function loadChat(chatId) {
+            state.currentChatId = chatId;
+            const chat = state.chats.find(c => c.id === chatId);
+
+            if (!chat) return;
+
+            if (elements.welcomeMessage) {
+                elements.welcomeMessage.classList.add('hidden');
+            }
+
+            if (elements.chatContainer) {
+                elements.chatContainer.innerHTML = '';
+
+                chat.messages.forEach(message => {
+                    addMessageToUI(message.role, message.content, false);
+                });
+
+                scrollToBottom();
+            }
+
+            renderChatList();
+        }
+
+        // 删除聊天
+        function deleteChat(chatId) {
+            state.chats = state.chats.filter(c => c.id !== chatId);
+            saveChatsToLocalStorage();
+            renderChatList();
+
+            if (state.currentChatId === chatId) {
+                if (state.chats.length > 0) {
+                    loadChat(state.chats[0].id);
+                } else {
+                    state.currentChatId = null;
+                    if (elements.chatContainer) {
+                        elements.chatContainer.innerHTML = '';
+                    }
+                    if (elements.welcomeMessage) {
+                        elements.welcomeMessage.classList.remove('hidden');
+                    }
+                }
+            }
+        }
+
+        // 保存聊天到本地存储
+        function saveChatsToLocalStorage() {
+            localStorage.setItem('aliyunChats', JSON.stringify(state.chats));
+        }
+
+        // 发送消息
+        async function sendMessage() {
+            const message = elements.userInput.value.trim();
+            if (!message) return;
+            if (!state.apiKey) {
+                alert('请先设置API Key');
+                elements.apiKeyModal.classList.remove('hidden');
+                return;
+            }
+            if (state.isGenerating) return;
+
+            if (!state.currentChatId) {
+                createNewChat();
+            }
+
+            elements.userInput.value = '';
+            elements.userInput.style.height = 'auto';
+
+            addMessageToUI('user', message);
+
+            const currentChat = state.chats.find(c => c.id === state.currentChatId);
+            currentChat.messages.push({
+                role: 'user',
+                content: message,
+            });
+
+            if (currentChat.messages.length === 1) {
+                currentChat.title = message.length > 20 ? message.substring(0, 20) + '...' : message;
+                renderChatList();
+            }
+
+            saveChatsToLocalStorage();
+
+            await generateResponse();
+        }
+
+        // ==================== 真正的流式输出核心实现 ====================
+        async function generateResponse() {
+            state.isGenerating = true;
+            elements.sendBtn.disabled = true;
+            elements.stopBtn.classList.remove('hidden');
+
+            const currentChat = state.chats.find(c => c.id === state.currentChatId);
+            const messages = currentChat.messages.slice(-CONFIG.maxHistoryLength);
+
+            // 添加打字指示器（等待第一个token时显示）
+            const assistantMessageElement = addTypingIndicator();
+            let fullContent = '';
+
+            try {
+                state.abortController = new AbortController();
+
+                const response = await fetch(CONFIG.baseURL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${state.apiKey}`,
+                        'Accept': 'text/event-stream', // 明确告诉服务器我们接受SSE流
+                    },
+                    body: JSON.stringify({
+                        model: CONFIG.model,
+                        messages: messages,
+                        stream: true,
+                        temperature: CONFIG.temperature,
+                        ...CONFIG.streamOptions
+                    }),
+                    signal: state.abortController.signal,
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || `请求失败: ${response.status}`);
+                }
+
+                // 移除打字指示器，准备显示真实内容
+                removeTypingIndicator(assistantMessageElement);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = ''; // 用于处理不完整的行
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    // 解码数据块并添加到缓冲区
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // 按行分割缓冲区
+                    const lines = buffer.split('\n');
+                    // 保留最后一行（可能不完整）
+                    buffer = lines.pop() || '';
+
+                    // 处理每一行
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine) continue;
+
+                        // 只处理SSE数据行
+                        if (trimmedLine.startsWith('data: ')) {
+                            const data = trimmedLine.substring(6);
+
+                            // 检查是否是结束标记
+                            if (data === '[DONE]') {
+                                continue;
+                            }
+
+                            try {
+                                const parsed = JSON.parse(data);
+                                const content = parsed.choices?.[0]?.delta?.content || '';
+
+                                if (content) {
+                                    fullContent += content;
+                                    // 立即渲染新内容
+                                    assistantMessageElement.innerHTML = DOMPurify.sanitize(marked.parse(fullContent));
+                                    // 立即滚动到底部
+                                    scrollToBottom();
+
+                                    // 强制浏览器重绘（确保立即显示）
+                                    assistantMessageElement.offsetHeight;
+                                }
+                            } catch (e) {
+                                console.error('解析流式响应失败:', e, '行内容:', data);
+                            }
+                        }
+                    }
+                }
+
+                // 处理缓冲区中剩余的内容
+                if (buffer.trim()) {
+                    if (buffer.startsWith('data: ')) {
+                        const data = buffer.substring(6);
+                        if (data !== '[DONE]') {
+                            try {
+                                const parsed = JSON.parse(data);
+                                const content = parsed.choices?.[0]?.delta?.content || '';
+                                if (content) {
+                                    fullContent += content;
+                                    assistantMessageElement.innerHTML = DOMPurify.sanitize(marked.parse(fullContent));
+                                    scrollToBottom();
+                                }
+                            } catch (e) {
+                                console.error('解析剩余缓冲区失败:', e);
+                            }
+                        }
+                    }
+                }
+
+                // 保存完整回复到聊天记录
+                currentChat.messages.push({
+                    role: 'assistant',
+                    content: fullContent,
+                });
+                saveChatsToLocalStorage();
+
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    if (fullContent) {
+                        assistantMessageElement.innerHTML += '<p class="text-gray-500 italic mt-2">生成已停止</p>';
+                    } else {
+                        assistantMessageElement.innerHTML = '<p class="text-gray-500 italic">生成已停止</p>';
+                    }
+                    // 保存已生成的内容
+                    if (fullContent) {
+                        currentChat.messages.push({
+                            role: 'assistant',
+                            content: fullContent,
+                        });
+                        saveChatsToLocalStorage();
+                    }
+                } else {
+                    console.error('生成回复失败:', error);
+                    assistantMessageElement.innerHTML = `<div class="text-red-500"><i class="fa fa-exclamation-circle mr-2"></i>错误: ${error.message}</div>`;
+                }
+            } finally {
+                state.isGenerating = false;
+                elements.sendBtn.disabled = false;
+                elements.stopBtn.classList.add('hidden');
+                state.abortController = null;
+            }
+        }
+
+        // 添加打字指示器
+        function addTypingIndicator() {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'max-w-3xl mx-auto flex justify-start';
+            messageDiv.id = 'typing-indicator-container';
+
+            messageDiv.innerHTML = `
+                <div class="flex flex-row items-start gap-3 max-w-[85%]">
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200">
+                        <i class="fa fa-robot text-sm"></i>
+                    </div>
+                    <div class="bg-assistantBubble dark:bg-darkAssistantBubble text-gray-800 dark:text-gray-200 rounded-t-lg rounded-br-lg p-3">
+                        <div class="typing-indicator flex gap-1">
+                            <span class="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full"></span>
+                            <span class="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full"></span>
+                            <span class="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full"></span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            elements.chatContainer.appendChild(messageDiv);
+            scrollToBottom();
+
+            return messageDiv.querySelector('.bg-assistantBubble, .dark\\:bg-darkAssistantBubble');
+        }
+
+        // 移除打字指示器并替换为真实内容容器
+        function removeTypingIndicator(element) {
+            // 清空打字指示器内容
+            element.innerHTML = '';
+            // 移除typing-indicator类
+            element.classList.remove('typing-indicator');
+        }
+
+        // 停止生成
+        function stopGeneration() {
+            if (state.abortController) {
+                state.abortController.abort();
+            }
+        }
+
+        // 添加消息到UI
+        function addMessageToUI(role, content, isStreaming = false) {
+            if (!elements.chatContainer) return;
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `max-w-3xl mx-auto flex ${role === 'user' ? 'justify-end' : 'justify-start'}`;
+
+            const bubbleClass = role === 'user'
+                ? 'bg-userBubble text-white rounded-t-lg rounded-bl-lg'
+                : 'bg-assistantBubble dark:bg-darkAssistantBubble text-gray-800 dark:text-gray-200 rounded-t-lg rounded-br-lg';
+
+            const iconClass = role === 'user'
+                ? 'fa-user bg-userBubble text-white'
+                : 'fa-robot bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-200';
+
+            messageDiv.innerHTML = `
+                <div class="flex ${role === 'user' ? 'flex-row-reverse' : 'flex-row'} items-start gap-3 max-w-[85%]">
+                    <div class="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${iconClass.split(' ').slice(1).join(' ')}">
+                        <i class="fa ${iconClass.split(' ')[0]} text-sm"></i>
+                    </div>
+                    <div class="${bubbleClass} p-3 prose dark:prose-invert max-w-none prose-sm">
+                        ${isStreaming ? '' : DOMPurify.sanitize(marked.parse(content))}
+                    </div>
+                </div>
+            `;
+
+            elements.chatContainer.appendChild(messageDiv);
+            scrollToBottom();
+
+            return messageDiv.querySelector('.prose');
+        }
+
+        // 滚动到底部
+        function scrollToBottom() {
+            if (elements.chatContainer) {
+                elements.chatContainer.scrollTop = elements.chatContainer.scrollHeight;
+                // 强制浏览器重绘
+                elements.chatContainer.offsetHeight;
+            }
+        }
+
+        // 导出聊天记录
+        function exportChatHistory() {
+            if (!state.currentChatId) {
+                alert('请先选择一个对话');
+                return;
+            }
+
+            const currentChat = state.chats.find(c => c.id === state.currentChatId);
+            if (currentChat.messages.length === 0) {
+                alert('当前对话没有消息可导出');
+                return;
+            }
+
+            let exportContent = `# ${currentChat.title}\n\n`;
+            exportContent += `导出时间: ${new Date().toLocaleString()}\n\n`;
+            exportContent += `---\n\n`;
+
+            currentChat.messages.forEach(message => {
+                const role = message.role === 'user' ? '用户' : '助手';
+                exportContent += `**${role}**: ${message.content}\n\n`;
+            });
+
+            const blob = new Blob([exportContent], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentChat.title.replace(/[<>:"/\\|?*]/g, '_')}_${new Date().toISOString().slice(0, 10)}.md`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // 启动应用
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>
