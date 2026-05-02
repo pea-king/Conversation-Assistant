@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>阿里云百炼多轮对话助手</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
 
     <script>
         tailwind.config = {
@@ -64,12 +64,16 @@
                     transform: translateY(-5px);
                 }
             }
+            .avatar-icon {
+                width: 32px !important;
+                height: 32px !important;
+                flex-shrink: 0 !important;
+            }
         }
     </style>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 transition-colors duration-300 min-h-screen">
     <div class="flex h-screen overflow-hidden">
-        <!-- 左侧边栏 - 电脑端完全不变 -->
         <div id="sidebar" class="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-transform duration-300 fixed h-full z-50 -translate-x-full md:translate-x-0">
             <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                 <button id="newChatBtn" class="w-full bg-primary hover:bg-primary/90 text-white rounded-lg py-2 px-4 flex items-center justify-center gap-2 transition-colors">
@@ -104,12 +108,9 @@
             </div>
         </div>
 
-        <!-- 移动端遮罩 -->
         <div id="overlay" class="fixed inset-0 bg-black/40 z-40 hidden md:hidden"></div>
 
-        <!-- 主聊天区域 -->
         <div class="flex-1 flex flex-col overflow-hidden">
-            <!-- 顶部导航 -->
             <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <button id="openSidebar" class="md:hidden text-gray-600 dark:text-gray-300">
@@ -129,11 +130,10 @@
                 </div>
             </header>
 
-            <!-- API 设置弹窗 -->
             <div id="apiKeyModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden">
                 <div class="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 shadow-xl">
                     <h2 class="text-xl font-semibold text-gray-800 dark:text-white mb-4">设置阿里云百炼API Key</h2>
-                    <p class="text-gray-600 dark:gray-300 mb-4 text-sm">密钥仅保存在本地，不会上传</p>
+                    <p class="text-gray-600 dark:text-gray-300 mb-4 text-sm">密钥仅保存在本地，不会上传</p>
                     <input type="password" id="apiKeyInput" placeholder="sk-xxxx" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-4 mb-4">
                     <div class="flex justify-end gap-2">
                         <button id="cancelApiKeyBtn" class="bg-gray-200 px-4 py-2 rounded">取消</button>
@@ -142,9 +142,7 @@
                 </div>
             </div>
 
-            <!-- 你要的完整聊天容器 + 欢迎消息 原样保留 -->
             <div id="chatContainer" class="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
-                <!-- 欢迎消息 -->
                 <div id="welcomeMessage" class="max-w-3xl mx-auto text-center py-12">
                     <div class="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
                         <i class="fa fa-comments text-primary text-2xl"></i>
@@ -172,11 +170,8 @@
                         </button>
                     </div>
                 </div>
-
-                <!-- 消息将在这里动态生成 -->
             </div>
 
-            <!-- 输入框 -->
             <div class="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4">
                 <div class="max-w-3xl mx-auto">
                     <div class="relative bg-gray-100 dark:bg-gray-700 rounded-lg border border-gray-300 dark:border-gray-600">
@@ -193,7 +188,6 @@
     </div>
 
     <script>
-        // 配置
         const CONFIG = {
             model: 'qwen3.6-plus',
             baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
@@ -201,16 +195,15 @@
             temperature: 0.7,
         };
 
-        // 全局状态
         let state = {
             apiKey: localStorage.getItem('aliyunApiKey') || '',
             currentChatId: null,
             chats: JSON.parse(localStorage.getItem('aliyunChats') || '[]'),
             isGenerating: false,
             abortController: null,
+            generatingChatId: null,
         };
 
-        // DOM 元素
         const elements = {
             sidebar: document.getElementById('sidebar'),
             overlay: document.getElementById('overlay'),
@@ -236,7 +229,6 @@
             exampleBtns: document.querySelectorAll('.example-btn'),
         };
 
-        // 初始化
         function init() {
             if (localStorage.getItem('darkMode') === 'true') {
                 document.documentElement.classList.add('dark');
@@ -245,7 +237,6 @@
             renderChatList();
             if (state.chats.length) loadChat(state.chats[0].id);
 
-            // 绑定示例问题
             elements.exampleBtns.forEach(btn => {
                 btn.addEventListener('click', () => {
                     elements.userInput.value = btn.textContent.trim();
@@ -256,7 +247,6 @@
             bindEvents();
         }
 
-        // 绑定事件
         function bindEvents() {
             elements.openSidebar.onclick = () => {
                 elements.sidebar.classList.remove('-translate-x-full');
@@ -286,7 +276,6 @@
             };
         }
 
-        // 清空当前对话
         function clearCurrentChat() {
             if (!state.currentChatId) return;
             if (!confirm('确定要清空当前对话所有消息吗？')) return;
@@ -298,7 +287,6 @@
             }
         }
 
-        // 更新API状态
         function updateApiKeyStatus() {
             if (state.apiKey) {
                 elements.apiKeyStatusText.textContent = '已设置API Key';
@@ -311,7 +299,6 @@
             }
         }
 
-        // 保存API
         function saveApiKey() {
             const v = elements.apiKeyInput.value.trim();
             if (!v) return alert('请输入API Key');
@@ -321,13 +308,11 @@
             elements.apiKeyModal.classList.add('hidden');
         }
 
-        // 切换主题
         function toggleTheme() {
             document.documentElement.classList.toggle('dark');
             localStorage.setItem('darkMode', document.documentElement.classList.contains('dark'));
         }
 
-        // 新建对话
         function createNewChat() {
             const chatId = Date.now().toString();
             state.chats.unshift({ id: chatId, title: '新对话', messages: [], createdAt: new Date().toISOString() });
@@ -338,7 +323,6 @@
             elements.closeSidebar.onclick();
         }
 
-        // 渲染会话列表
         function renderChatList() {
             elements.chatList.innerHTML = '';
             state.chats.forEach(chat => {
@@ -358,6 +342,8 @@
                             }
                         }
                     } else {
+                        state.currentChatId = chat.id;
+                        renderChatList();
                         loadChat(chat.id);
                         elements.closeSidebar.onclick();
                     }
@@ -366,7 +352,6 @@
             });
         }
 
-        // 加载会话
         function loadChat(chatId) {
             state.currentChatId = chatId;
             const chat = state.chats.find(c => c.id === chatId);
@@ -384,12 +369,10 @@
             scrollToBottom();
         }
 
-        // 保存会话
         function saveChatsToLocalStorage() {
             localStorage.setItem('aliyunChats', JSON.stringify(state.chats));
         }
 
-        // 发送消息
         async function sendMessage() {
             const content = elements.userInput.value.trim();
             if (!content) return;
@@ -413,12 +396,13 @@
             await generateResponse();
         }
 
-        // 真·流式输出
         async function generateResponse() {
             state.isGenerating = true;
+            state.generatingChatId = state.currentChatId;
             elements.sendBtn.disabled = true;
             elements.stopBtn.classList.remove('hidden');
-            const chat = state.chats.find(c => c.id === state.currentChatId);
+
+            const chat = state.chats.find(c => c.id === state.generatingChatId);
             const messages = chat.messages.slice(-CONFIG.maxHistoryLength);
             const bubble = addEmptyAssistantBubble();
             let full = '';
@@ -461,8 +445,10 @@
                             const c = json.choices?.[0]?.delta?.content || '';
                             if (c) {
                                 full += c;
-                                bubble.innerHTML = DOMPurify.sanitize(marked.parse(full));
-                                scrollToBottom();
+                                if (state.generatingChatId === chat.id) {
+                                    bubble.innerHTML = DOMPurify.sanitize(marked.parse(full));
+                                    scrollToBottom();
+                                }
                             }
                         } catch (e) {}
                     }
@@ -477,24 +463,23 @@
                 }
             } finally {
                 state.isGenerating = false;
+                state.generatingChatId = null;
                 elements.sendBtn.disabled = false;
                 elements.stopBtn.classList.add('hidden');
                 state.abortController = null;
             }
         }
 
-        // 停止生成
         function stopGeneration() {
             if (state.abortController) state.abortController.abort();
         }
 
-        // 创建空的助手气泡
         function addEmptyAssistantBubble() {
             const div = document.createElement('div');
             div.className = 'max-w-3xl mx-auto flex justify-start';
             div.innerHTML = `
                 <div class="flex flex-row items-start gap-3 max-w-[85%]">
-                    <div class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center">
+                    <div class="avatar-icon rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center">
                         <i class="fa fa-robot text-sm"></i>
                     </div>
                     <div class="bg-assistantBubble dark:bg-darkAssistantBubble text-gray-800 dark:text-gray-200 rounded-lg p-3 prose dark:prose-invert"></div>
@@ -505,7 +490,6 @@
             return div.querySelector('.prose');
         }
 
-        // 添加消息
         function addMessageToUI(role, content) {
             const div = document.createElement('div');
             div.className = `max-w-3xl mx-auto flex ${role === 'user' ? 'justify-end' : 'justify-start'}`;
@@ -513,8 +497,8 @@
                 ? 'bg-userBubble text-white rounded-lg'
                 : 'bg-assistantBubble dark:bg-darkAssistantBubble text-gray-800 dark:text-gray-200 rounded-lg';
             const icon = role === 'user'
-                ? '<div class="w-8 h-8 rounded-full bg-userBubble text-white flex items-center justify-center"><i class="fa fa-user text-sm"></i></div>'
-                : '<div class="w-8 h-8 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center"><i class="fa fa-robot text-sm"></i></div>';
+                ? '<div class="avatar-icon rounded-full bg-userBubble text-white flex items-center justify-center"><i class="fa fa-user text-sm"></i></div>'
+                : '<div class="avatar-icon rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center"><i class="fa fa-robot text-sm"></i></div>';
             div.innerHTML = `
                 <div class="flex ${role === 'user' ? 'flex-row-reverse' : 'flex-row'} items-start gap-3 max-w-[85%]">
                     ${icon}
@@ -527,12 +511,10 @@
             scrollToBottom();
         }
 
-        // 滚动到底
         function scrollToBottom() {
             elements.chatContainer.scrollTop = elements.chatContainer.scrollHeight;
         }
 
-        // 导出记录
         function exportChatHistory() {
             if (!state.currentChatId) return alert('请选择对话');
             const chat = state.chats.find(c => c.id === state.currentChatId);
